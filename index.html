@@ -21,9 +21,9 @@ header{position:sticky;top:0;z-index:5;background:var(--red);color:#fff;padding:
 .brand small{opacity:.9;font-size:15px;display:block;margin-top:2px}
 .cfg{margin-left:auto;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:28px;width:54px;height:54px;border-radius:50%}
 .tabs{display:flex;margin-top:10px;gap:6px}
-.tabs button{flex:1;border:0;background:transparent;color:#fff;font-size:22px;font-weight:700;padding:15px 0;border-radius:14px 14px 0 0;opacity:.9}
+.tabs button{flex:1;border:0;background:transparent;color:#fff;font-size:19px;font-weight:700;padding:15px 0;border-radius:14px 14px 0 0;opacity:.9}
 .tabs button.on{background:var(--bg);color:var(--red);opacity:1}
-.badge{display:inline-block;background:#fff;color:var(--red);border-radius:14px;font-size:18px;padding:1px 10px;margin-left:6px}
+.badge{display:inline-block;background:#fff;color:var(--red);border-radius:14px;font-size:16px;padding:1px 8px;margin-left:4px}
 .tabs button.on .badge{background:var(--red);color:#fff}
 main{padding:14px 14px 190px;max-width:760px;margin:auto}
 .search,.cli{width:100%;font-size:26px;padding:18px;border:3px solid var(--line);border-radius:16px;outline:0;background:#fff}
@@ -51,6 +51,15 @@ h2{font-size:24px;margin:26px 2px 4px;color:var(--red)}
 .empty{text-align:center;color:var(--mut);padding:50px 10px;font-size:22px}
 .toast{position:fixed;left:50%;bottom:210px;transform:translateX(-50%);background:#222;color:#fff;padding:14px 22px;border-radius:26px;font-size:20px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:9;max-width:92%;text-align:center}
 .toast.on{opacity:1}
+.rf{display:block;width:100%;font-size:24px;padding:18px}
+.err{color:var(--red);font-weight:700}
+.fh{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.arr{font-size:26px;color:var(--red)}
+.fl{display:flex;gap:10px;align-items:baseline;border-top:2px solid var(--line);padding:12px 2px;margin-top:2px}
+.fc2{color:var(--red);font-weight:800;font-size:22px;min-width:80px}
+.fd{flex:1;font-size:19px;word-break:break-word}
+.fq{font-weight:800;font-size:28px;white-space:nowrap}
+.fb{display:block;width:100%;margin-top:14px;flex:none}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -60,6 +69,7 @@ h2{font-size:24px;margin:26px 2px 4px;color:var(--red)}
   <div class="tabs">
     <button id="t1" class="on">Buscar</button>
     <button id="t2">Pedido<span class="badge" id="cnt">0</span></button>
+    <button id="t3">Facturar<span class="badge" id="fcnt">0</span></button>
   </div>
 </header>
 <main>
@@ -74,8 +84,13 @@ h2{font-size:24px;margin:26px 2px 4px;color:var(--red)}
     <input id="cli" class="cli" type="text" placeholder="Ej: Pérez">
     <div id="ord"></div>
   </section>
+  <section id="v3" hidden>
+    <button class="ghost rf" id="rf">↻ Actualizar</button>
+    <div class="hint err" id="fmsg"></div>
+    <div id="fact"></div>
+  </section>
 </main>
-<div class="bar">
+<div class="bar" id="bar">
   <div class="sum" id="sum" hidden></div>
   <button class="go" id="go">Ver pedido ›</button>
   <button class="ghost" id="clr" hidden>Vaciar</button>
@@ -93,6 +108,55 @@ const save=()=>{try{localStorage.setItem('pedido',JSON.stringify(order));localSt
 const esc=s=>s.replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isFinite(n)&&n>0?n:0};
 const qOf=c=>{const f=order.find(o=>o.c==c);return f?f.q:0};
+let fact=[],openId='',loadingF=false,errF='';
+const DESC={};DATA.forEach(function(r){DESC[r[0]]=r[1]});
+function jsonp(params,cb){
+  var dest='';try{dest=localStorage.getItem('destino')||''}catch(e){}
+  if(!dest){cb(null,'Primero conectá con la PC (botón ⚙).');return}
+  var nm='jp'+Date.now()+Math.floor(Math.random()*1000),s=document.createElement('script'),done=false,tm;
+  var end=function(r,er){if(done)return;done=true;clearTimeout(tm);try{delete window[nm]}catch(e){window[nm]=undefined}if(s.parentNode)s.parentNode.removeChild(s);cb(r,er)};
+  tm=setTimeout(function(){end(null,'Google no respondió. Revisá internet y que el script esté actualizado (versión nueva).')},20000);
+  window[nm]=function(r){end(r)};
+  s.onerror=function(){end(null,'No se pudo conectar con Google.')};
+  s.src=dest+(dest.indexOf('?')<0?'?':'&')+'callback='+nm+'&'+params+'&_='+Date.now();
+  document.head.appendChild(s);
+}
+function loadF(silent){
+  if(loadingF)return;loadingF=true;if(!silent){errF='';renderFact()}
+  jsonp('action=list',function(r,er){
+    loadingF=false;
+    if(!r||!r.ok){errF=er||(r&&r.error)||'Respuesta inválida.'}
+    else{
+      errF='';
+      fact=r.items.map(function(x){
+        var its=String(x.text||'').split(/\r?\n/).filter(Boolean).map(function(l){var a=l.split(';');return {c:a[0],q:a[1],d:DESC[a[0]]||''}});
+        var cli=x.cli||String(x.name||'').replace(/^pedido_\d{8}_\d{4}_?/,'').replace(/\.txt$/,'').replace(/_/g,' ');
+        return {id:x.id,t:x.t,cli:cli,items:its};
+      });
+    }
+    renderFact();
+  });
+}
+function renderFact(){
+  $('fcnt').textContent=fact.length;
+  $('rf').textContent=loadingF?'Actualizando…':'↻ Actualizar';
+  $('fmsg').textContent=errF;
+  const p=n=>('0'+n).slice(-2);
+  $('fact').innerHTML=fact.length?fact.map(f=>{
+    const d=new Date(f.t),open=f.id==openId;
+    return `<div class="item${open?' on':''}"><div class="fh" data-f="${f.id}" data-a="f"><div><div class="desc"><b>${esc(f.cli||'Consumidor final')}</b></div><div class="cod">${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())} · ${f.items.length} artículo(s)</div></div><span class="arr">${open?'▲':'▼'}</span></div>`
+      +(open?f.items.map(i=>`<div class="fl"><span class="fc2">${esc(i.c)}</span><span class="fd">${esc(i.d)}</span><span class="fq">× ${esc(String(i.q))}</span></div>`).join('')+`<button class="done fb" data-f="${f.id}" data-a="fd">Facturado ✔</button>`:'')+'</div>';
+  }).join(''):(loadingF?'<div class="empty">Cargando…</div>':(errF?'':'<div class="empty">No hay pedidos para facturar.</div>'));
+}
+function factClick(id,a){
+  if(a=='f'){openId=openId==id?'':id;renderFact();return}
+  const f=fact.find(x=>x.id==id);
+  if(!f||!confirm('¿Marcar como facturado y quitar de la lista?\n\n'+(f.cli||'Consumidor final')))return;
+  jsonp('action=done&id='+encodeURIComponent(id),function(r,er){
+    if(r&&r.ok){fact=fact.filter(x=>x.id!=id);openId='';renderFact();toast('✔ Facturado')}
+    else alert('No se pudo marcar como facturado. '+(er||(r&&r.error)||'')+'\nProbá de nuevo.');
+  });
+}
 let tt;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),1800)}
 function row(c,d,q){
   return `<div class="item${q?' on':''}"><div class="cod">${c}</div><div class="desc">${esc(d)}</div><div class="step"><button class="b" data-c="${c}" data-a="-"${q?'':' disabled'}>−</button><span class="n" data-c="${c}" data-a="n">${q}</span><button class="b p" data-c="${c}" data-a="+">+</button></div></div>`;
@@ -109,7 +173,7 @@ function chg(c,a){
   }
   save();upd();
 }
-document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-a]');if(b)chg(+b.dataset.c,b.dataset.a)});
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-a]');if(!b)return;if(b.dataset.f)factClick(b.dataset.f,b.dataset.a);else chg(+b.dataset.c,b.dataset.a)});
 $('q').addEventListener('input',upd);
 $('cli').addEventListener('input',save);
 function upd(){
@@ -127,16 +191,19 @@ function upd(){
     $('res').innerHTML=f.slice(0,20).map(it=>row(it.c,it.d,qOf(it.c))).join('');
   }
   $('added').innerHTML=order.length?'<h2>Cargado en el pedido ('+order.length+')</h2>'+order.slice().reverse().map(o=>row(o.c,o.d,o.q)).join(''):'';
+  renderFact();
   $('ord').innerHTML=order.length?order.map(o=>row(o.c,o.d,o.q)).join(''):'<div class="empty">Todavía no cargaste artículos.<br>Andá a “Buscar” para empezar.</div>';
 }
 function tab(n,nf){
-  $('v1').hidden=n!=1;$('v2').hidden=n!=2;
-  $('t1').classList.toggle('on',n==1);$('t2').classList.toggle('on',n==2);
+  $('v1').hidden=n!=1;$('v2').hidden=n!=2;$('v3').hidden=n!=3;
+  [1,2,3].forEach(k=>$('t'+k).classList.toggle('on',n==k));
+  $('bar').hidden=n==3;
   $('go').hidden=n!=1;$('sum').hidden=$('clr').hidden=$('ok').hidden=n!=2;
   window.scrollTo(0,0);
+  if(n==3)loadF();
   if(n==1&&!nf)$('q').focus();
 }
-$('t1').onclick=()=>tab(1);$('t2').onclick=()=>tab(2);$('go').onclick=()=>tab(2);
+$('t1').onclick=()=>tab(1);$('rf').onclick=()=>loadF();$('t2').onclick=()=>tab(2);$('t3').onclick=()=>tab(3);$('go').onclick=()=>tab(2);
 $('clr').onclick=()=>{if(order.length&&confirm('¿Vaciar todo el pedido?')){order=[];save();upd()}};
 $('ok').onclick=function(){
   try{
@@ -147,7 +214,7 @@ $('ok').onclick=function(){
   var cli=norm($('cli').value).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
   var name='pedido_'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+(cli?'_'+cli:'')+'.txt';
   var dest='';try{dest=localStorage.getItem('destino')||''}catch(e){}
-  var fin=function(m){order=[];$('cli').value='';save();$('ok').textContent='Pedido realizado';upd();tab(1);toast(m)};
+  var fin=function(m){setTimeout(loadF,3000);order=[];$('cli').value='';save();$('ok').textContent='Pedido realizado';upd();tab(1);toast(m)};
   var local=function(){
     try{
       var url=URL.createObjectURL(new Blob([txt],{type:'text/plain;charset=utf-8'}));
@@ -158,7 +225,7 @@ $('ok').onclick=function(){
   var fail=function(why){local();fin('No se pudo enviar a la PC');alert('NO se envió a la PC. El archivo se descargó en el equipo.\n\nMotivo: '+why)};
   if(!dest){local();fin('Descargado en el equipo: '+name);return}
   $('ok').disabled=true;$('ok').textContent='Enviando…';
-  var body=JSON.stringify({name:name,text:txt});
+  var body=JSON.stringify({name:name,text:txt,cli:$('cli').value.trim()});
   if(window.fetch){
     fetch(dest,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:body})
       .then(function(){fin('✔ Enviado a la PC: '+name)},function(){fail('no hay conexión con Google (revisá internet o la URL).')});
@@ -179,7 +246,7 @@ $('cfg').onclick=()=>{
   est();toast(u?'Conectado con la PC':'Se guardará solo en el celular');
 };
 function est(){let d='';try{d=localStorage.getItem('destino')||''}catch(e){}$('est').textContent=d?'✔ Conectado a la PC':'Solo guarda en el celular (⚙ para conectar)'}
-est();upd();tab(1,1);
+est();upd();tab(1,1);loadF(1);setInterval(function(){if(!$('v3').hidden)loadF(1)},60000);
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(function(){});
 </script>
 </body>
